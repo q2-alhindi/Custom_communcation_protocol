@@ -1,5 +1,5 @@
 #include "pico/stdlib.h"
-#include "transmitter.h"
+#include "protocol.h"
 #include <string.h>
 #include <stdio.h>
 

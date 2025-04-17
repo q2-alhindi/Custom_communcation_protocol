@@ -1,4 +1,4 @@
-#include "transmitter.h"
+#include "protocol.h"
 #include <stdio.h>
 
 int main() {
