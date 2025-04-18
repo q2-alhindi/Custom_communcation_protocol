@@ -1,5 +1,25 @@
 # Worksheet 2 - Custom Communication Protocol
 
+## Table of Contents
+- [Overview](#overview)
+- [Getting Started](#getting-started)
+  - [Essentials](#essentials)
+  - [Initialising Project Environment](#initialising-project-environment)
+    - [Cloning the pico SDK](#cloning-the-pico-sdk)
+    - [Cloning and building the project](#cloning-and-building-the-project)
+    - [Running the Project](#running-the-project)
+- [File Structure](#file-structure)
+- [Challenge Faced](#challenge-faced)
+- [Implementation Details](#implementation-details)
+  - [Pico Side](#pico-side)
+    - [protocol.h](#protocolh)
+    - [protocol.c](#protocolc)
+    - [main.c](#mainc)
+  - [PC Side](#pc-side)
+    - [client.py](#clientpy)
+- [Output](#output)
+
+
 ## Overview
 This project implements a custom communication protocol between a Raspberry Pi Pico (developed in C) and a host PC application (developed in Python) utilising UART for data transmission. The system is designed to support robust and structured data transmission over USB Serial, enabling reliable communication for use cases like sensor data exchange, echo testing, and protocol validation.
 
@@ -370,6 +390,89 @@ if __name__ == "__main__":
 
 ~~~
 This block runs the script when it is executed directly. It starts by creating a `CustomProtocol` instance configured for `COM9` at 9600 baud. It attempts to connect to the Raspberry Pi Pico using `protocol.connect()`. If the connection succeeds, it enters a loop that lets the user type messages to send to the Pico. Each message is encoded and sent, and the script waits for a response using the `receive()` method. If a response is received and passes checksum validation, it is printed to the console. The loop continues until the user types `'exit'` or interrupts the program, at which point the script cleans up by closing the serial port. 
+
+**connector.py**: This Python file acts as a serial bridge between the Raspberry Pi Pico and two virtual COM ports. The main role of it is to allow simultaneous communication between the Pico, a Python script (like client.py), and a serial monitoring tool (like Tera Term).
+
+**Snippet 1**:
+~~~py
+pico_port = 'COM5'       
+virtual_port1 = 'COM8'   
+virtual_port2 = 'COM10'  
+~~~
+`pico_port` is the actual hardware serial port your Raspberry Pi Pico is connected to via USB. It’s where all real data is sent or received.
+
+`virtual_port1` is a software-created virtual serial port. It’s the endpoint your Python script (client.py) connects to for reading from or writing to the Pico indirectly.
+
+`virtual_port2` is another virtual port, opened by a tool like Tera Term for live monitoring.
+
+**Snippet 2**:
+~~~py
+def connect_port(port, baudrate):
+    max_attempts = 3 
+    for attempt in range(max_attempts):
+        try:
+            ser = serial.Serial(port, baudrate, timeout=1)
+            ser.flushInput()   
+            ser.flushOutput()  
+            return ser
+        except serial.SerialException as e:
+            print(f"Failed to connect to {port} (attempt {attempt + 1}/{max_attempts}): {e}")
+            time.sleep(1)  
+    raise serial.SerialException(f"Could not connect to {port} after {max_attempts} attempts")
+~~~
+The `connect_port` function is responsible for reliably establishing a serial connection to a specified `port` using a defined `baudrate`. It uses a retry mechanism controlled by `max_attempts`, which limits the number of connection attempts to 3. Inside the loop, it tries to create a `serial.Serial` object called `ser` that represents the the serial connection, while setting a 1 second timeout for responsiveness. After successfully opening the port, it flushes both the input and output buffers (`flushInput()` and `flushOutput()`) to prevent any residual data from interfering with the communication. If the port fails to open during any of the attempts, it prints a helpful error message and waits one second (`time.sleep(1)`) before retrying. If all attempts fail, it raises a `SerialException` to notify the rest of the program that the port could not be connected.
+
+**Snippet 3**:
+~~~py
+try:
+    pico = connect_port(pico_port, 9600)
+    virtual1 = connect_port(virtual_port1, 9600)
+    virtual2 = connect_port(virtual_port2, 9600)
+    print(f"Bridge started: {pico_port} <-> {virtual_port1} and {virtual_port2}")
+except serial.SerialException as e:
+    print(f"Error opening ports: {e}")
+    exit(1)
+~~~
+This block of code attempts to establish serial connections to three different ports: the physical Raspberry Pi Pico port `COM5`, and two virtual ports `virtual_port1` and `virtual_port2` using the `connect_port` function. All connections are initialized at a baud rate of `9600`.
+
+**Snippet 4**:
+~~~py
+try:
+    while True:
+        try:
+            if pico.in_waiting:
+                data = pico.read(min(pico.in_waiting, 1024))  
+                virtual1.write(data)
+                virtual2.write(data)
+                virtual1.flush()
+                virtual2.flush()
+                print(f"Pico -> Virtual: {data}")
+
+            if virtual1.in_waiting:
+                data = virtual1.read(min(virtual1.in_waiting, 1024))
+                pico.write(data)
+                pico.flush()
+                print(f"Virtual1 -> Pico (Python): {data}")
+
+            if virtual2.in_waiting:
+                data = virtual2.read(min(virtual2.in_waiting, 1024))
+                pico.write(data)
+                pico.flush()
+                print(f"Virtual2 -> Pico (Tera Term): {data}")
+
+            time.sleep(0.01) 
+        except serial.SerialException as e:
+            print(f"Serial error: {e}")
+            time.sleep(1)
+~~~
+This `while True` loop continuously bridges communication between the Raspberry Pi Pico and two virtual COM ports. It acts as a transparent relay, allowing data from the Pico to be forwarded to both the Python app (via virtual1) and a serial monitor like Tera Term (via virtual2). If the Pico sends data (checked using pico.in_waiting), the data is read, duplicated, and sent to both virtual ports, then flushed. Conversely, if either of the virtual ports sends data, it is forwarded to the Pico. This enables real-time two-way communication.
+
+**Snippet 5**:
+~~~py
+except KeyboardInterrupt:
+    print("\nStopping bridge...")
+~~~
+This triggers the print message when the terminal is shut down by CTRL+C.
 
 ### Output
 The output of running **connector.py**
