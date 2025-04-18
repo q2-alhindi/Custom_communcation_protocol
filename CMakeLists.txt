@@ -12,7 +12,7 @@ pico_sdk_init()
 # Add your executable target
 add_executable(transmitter
     main.c
-    transmitter.c
+    protocol.c
 )
 
 # Enable USB output, UART output, etc.
